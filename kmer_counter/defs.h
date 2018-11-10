@@ -110,9 +110,9 @@ typedef unsigned long long uint64;
 #include <string.h>
 
 #include <stdio.h>
-#include <ext/algorithm>
+#include <algorithm>
 #include <iostream>
-using __gnu_cxx::copy_n;
+using std::copy_n;
 
 #endif
 

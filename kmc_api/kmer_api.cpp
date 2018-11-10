@@ -14,7 +14,6 @@
 #include <vector>
 #include <math.h>
 
-using namespace std;
 
 const char CKmerAPI::char_codes[] = {'A','C', 'G', 'T'};	
 char CKmerAPI::num_codes[];

@@ -267,10 +267,10 @@ public:
 		{
 			for (int i = 0; i < 256; i++)
                 num_codes[i] = -1;
-			num_codes['A'] = num_codes['a'] = 0;
-			num_codes['C'] = num_codes['c'] = 1;
-			num_codes['G'] = num_codes['g'] = 2;
-			num_codes['T'] = num_codes['t'] = 3;
+			num_codes[static_cast<int>('A')] = num_codes[static_cast<int>('a')] = 0;
+			num_codes[static_cast<int>('C')] = num_codes[static_cast<int>('c')] = 1;
+			num_codes[static_cast<int>('G')] = num_codes[static_cast<int>('g')] = 2;
+			num_codes[static_cast<int>('T')] = num_codes[static_cast<int>('t')] = 3;
         }
     } static _init;
 
