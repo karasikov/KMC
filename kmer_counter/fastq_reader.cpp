@@ -5,8 +5,8 @@
 
   Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
 
-  Version: 3.1.0
-  Date   : 2018-05-10
+  Version: 3.1.1
+  Date   : 2019-05-19
 */
 
 #include <algorithm>
@@ -23,9 +23,12 @@ uint64 CFastqReader::OVERHEAD_SIZE = 1 << 16;
 // Constructor of FASTA/FASTQ reader
 // Parameters:
 //    * _mm - pointer to memory monitor (to check the memory limits)
-CFastqReader::CFastqReader(CMemoryMonitor *_mm, CMemoryPoolWithBamSupport *_pmm_fastq, input_type _file_type, int _kmer_len, CBinaryPackQueue* _binary_pack_queue, CMemoryPool* _pmm_binary_file_reader, CBamTaskManager* _bam_task_manager, CPartQueue* _part_queue, CStatsPartQueue* _stats_part_queue)
+CFastqReader::CFastqReader(CMemoryMonitor *_mm, CMemoryPoolWithBamSupport *_pmm_fastq, input_type _file_type, int _kmer_len, 
+	CBinaryPackQueue* _binary_pack_queue, CMemoryPool* _pmm_binary_file_reader, CBamTaskManager* _bam_task_manager, 
+	CPartQueue* _part_queue, CStatsPartQueue* _stats_part_queue, CMissingEOL_at_EOF_counter* _missingEOL_at_EOF_counter)
 {
 	binary_pack_queue = _binary_pack_queue;
+	missingEOL_at_EOF_counter = _missingEOL_at_EOF_counter;
 
 	bam_task_manager = _bam_task_manager;
 	part_queue = _part_queue;
@@ -235,11 +238,11 @@ void CFastqReader::PreparePartForSplitter(uchar* data, uint64 size, uint32 /*id*
 
 		if (part_queue)
 		{
-			part_queue->push(state.prev_part_data, state.prev_part_size);
+			part_queue->push(state.prev_part_data, state.prev_part_size, ReadType::na);
 		}
 		else if (stats_part_queue)
 		{
-			if (!stats_part_queue->push(state.prev_part_data, state.prev_part_size))
+			if (!stats_part_queue->push(state.prev_part_data, state.prev_part_size, ReadType::na))
 			{
 				pmm_fastq->free(state.prev_part_data);
 				pmm_fastq->free(data);
@@ -273,11 +276,11 @@ void CFastqReader::PreparePartForSplitter(uchar* data, uint64 size, uint32 /*id*
 
 			if (part_queue)
 			{
-				part_queue->push(data, size);
+				part_queue->push(data, size, ReadType::na);
 			}
 			else if (stats_part_queue)
 			{
-				if (!stats_part_queue->push(data, size))
+				if (!stats_part_queue->push(data, size, ReadType::na))
 				{
 					pmm_fastq->free(data);
 					bam_task_manager->IgnoreRest(pmm_fastq, pmm_binary_file_reader);
@@ -317,11 +320,11 @@ void CFastqReader::PreparePartForSplitter(uchar* data, uint64 size, uint32 /*id*
 			state.prev_part_size = size - bpos;
 			if (part_queue)
 			{
-				part_queue->push(data, bpos);
+				part_queue->push(data, bpos, ReadType::na);
 			}
 			else if (stats_part_queue)
 			{
-				if (!stats_part_queue->push(data, bpos))
+				if (!stats_part_queue->push(data, bpos, ReadType::na))
 				{
 					pmm_fastq->free(data);
 					pmm_fastq->free(state.prev_part_data);
@@ -386,9 +389,14 @@ bool CFastqReader::GetPartFromMultilneFasta(uchar *&_part, uint64 &_size)
 			return false;
 	}
 
-	readed = data_src.read(part + part_filled, part_size - part_filled);
+	bool last_in_file;
+	readed = data_src.read(part + part_filled, (part_size - 1) - part_filled, last_in_file); //part_size - 1 to eventually append EOL if not present at EOF
 
 	int64 total_filled = part_filled + readed;
+
+	if (last_in_file)	
+		FixEOLIfNeeded(part, total_filled);
+	
 	int64 last_header_pos = 0;
 	int64 pos = 0;
 	for (int64 i = 0; i < total_filled; ++i)//find last '>' and remove EOLs
@@ -433,24 +441,104 @@ bool CFastqReader::GetPartFromMultilneFasta(uchar *&_part, uint64 &_size)
 	return true;
 }
 
-bool CFastqReader::GetPartNew(uchar *&_part, uint64 &_size)
+FORCE_INLINE void CFastqReader::FixEOLIfNeeded(uchar* part, int64& size)
+{
+	uchar c = part[size - 1];
+	if (c != '\n' && c != '\r')
+	{
+		//std::cerr << "Warning: missing end of line character after last line in file\n";
+		missingEOL_at_EOF_counter->RegisterMissingEOL();
+		part[size++] = '\n'; //append fake EOL
+	}
+}
+
+FORCE_INLINE bool CFastqReader::GetNextSymbOfLongReadRecord(uchar& res, int64& p, int64& size)
+{
+	if (p == size)
+	{
+		bool last_in_file;
+		size = data_src.read(part, part_size - 1, last_in_file);//part_size - 1 to eventually append EOL if not present at EOF
+		if(last_in_file)
+			FixEOLIfNeeded(part, size);
+		p = 0;
+		if (size == 0)
+			return false;
+	}
+	res = part[p++];
+	return true;
+}
+
+void CFastqReader::CleanUpAfterLongFastqRead(uint32 number_of_lines_to_skip)
+{
+	pmm_fastq->reserve(part);
+
+	uchar symb;
+	int64 in_part = 0;
+	int64 skip_pos = 0;
+	uint32 state = 0; // 0 - skipping remaining EOLs, 1 - skipping line
+	while (GetNextSymbOfLongReadRecord(symb, skip_pos, in_part))
+	{
+		if (state == 0)
+		{
+			if (symb == '\n' || symb == '\r')
+				;
+			else
+			{
+				if (number_of_lines_to_skip)
+					state = 1;
+				else
+				{
+					if (symb != '@')
+					{
+						cerr << "Error: Wrong input file!\n";
+						exit(1);
+					}
+					std::copy(part + skip_pos - 1, part + in_part, part);
+					part_filled = in_part - (skip_pos - 1);
+					return;
+				}
+			}
+		}
+		else if (state == 1)
+		{
+			if (symb == '\n' || symb == '\r')
+			{
+				--number_of_lines_to_skip;
+				state = 0;
+			}
+		}
+	}
+
+	//the file has ended
+	part_filled = 0;
+}
+
+bool CFastqReader::GetPartNew(uchar *&_part, uint64 &_size, ReadType& read_type)
 {
 	if (file_type == multiline_fasta)
+	{
+		read_type = ReadType::na;
 		return GetPartFromMultilneFasta(_part, _size);
+	}
 
 	if (data_src.Finished())
 		return false;
 	uint64 readed;
 
 	// Read data
-	readed = data_src.read(part + part_filled, part_size - part_filled);
-
+	bool last_in_file;
+	readed = data_src.read(part + part_filled, (part_size - 1) - part_filled, last_in_file);//part_size - 1 to eventually append EOL if not present at EOF
+	
 	//std::cerr.write((char*)part + part_filled, readed);
 
 	int64 total_filled = part_filled + readed;
+
+	if (last_in_file)
+		FixEOLIfNeeded(part, total_filled);
+
 	int64 i;
 
-	if (data_src.Finished())
+	if (data_src.Finished() && !long_read_in_progress)
 	{
 		_part = part;
 		_size = total_filled;
@@ -501,9 +589,60 @@ bool CFastqReader::GetPartNew(uchar *&_part, uint64 &_size)
 
 		_part = part;
 		_size = line_end[k + 1];
+		read_type = ReadType::normal_read;
 	}
 	else
 	{
+		if (long_read_in_progress)
+		{
+			//check if there is EOL in the data
+			int64 pos = 0;
+			for (; pos < total_filled; ++pos)
+			{
+				if (part[pos] == '\n' || part[pos] == '\r')
+				{
+					long_read_in_progress = false;
+					break;
+				}
+			}
+
+			if (!long_read_in_progress)
+			{
+				_part = part;
+				_size = pos;
+
+				//count the number of lines to skip after the part that is currently in the buffer (after read)
+				uint32 no_lines = 2;//qual header and qual
+				uint32 state = 0; //0 - skipping remaining EOLs, 1 - skipping line content
+				for (; pos < total_filled; ++pos)
+				{
+					if (state == 0)
+					{
+						if (part[pos] == '\n' || part[pos] == '\r')
+							state = 1;
+					}
+					else if (state == 1)
+					{
+						if (part[pos] == '\n' || part[pos] == '\r')
+						{
+							--no_lines;
+							state = 0;
+						}
+					}
+				}
+				CleanUpAfterLongFastqRead(no_lines);
+			}
+			else
+			{
+				_part = part;
+				_size = total_filled;
+				pmm_fastq->reserve(part);
+				std::copy(_part + total_filled - kmer_len + 1, _part + total_filled, part);
+				part_filled = kmer_len - 1;
+			}
+			return true;
+		}
+
 		i = total_filled - 1;
 		int64 start, end;
 		int64 line_start[8], line_end[8];
@@ -537,13 +676,74 @@ bool CFastqReader::GetPartNew(uchar *&_part, uint64 &_size)
 			}
 		}
 
-		if (!success)
+		if (!success) //wrong input file or very long read 
 		{
-			cerr << "Error: Wrong input file!\n";
-			exit(1);
+			if (readed_lines == 4) //because if successfully reade full 4 lines in the worst case there is only one read that begins at the buffer start, and there is only onle fastq record
+			{
+				std::cerr << "Error: some error while reading fastq file, please contact authors\n";
+				exit(1);
+			}
+			k = 8 - readed_lines;
+			if (line_start[k] != 0)
+			{
+				std::cerr << "Error: some error while reading fastq file, please contact authors\n";
+				exit(1);
+			}
+			if (part[0] != '@')
+			{
+				cerr << "Error: Wrong input file!\n";
+				exit(1);
+			}
+			if (readed_lines == 1)
+			{
+				long_read_in_progress = true;
+
+				_part = part;
+				_size = total_filled;
+				read_type = ReadType::long_read;
+
+				//copy last k-1 symbols
+				pmm_fastq->reserve(part);
+				copy(_part + total_filled - kmer_len + 1, _part + total_filled, part);
+				part_filled = kmer_len - 1;
+
+				return true;
+			}
+			else //whole read had beed read
+			{
+				//readed_lines == 1 -> read header, and part of read
+				//readed_lines == 2 -> read header + read, and (possibly empty) part of qual header
+				//readed_lines == 3 -> read header + read + qual header, and (possibly empty) part of qual 
+				//readed_lines == 4 -> should not be possible here
+				//so here only read_lines == 2 or 3 is possible
+
+				long_read_in_progress = false;
+				_part = part;
+				_size = line_end[k + 1];
+				read_type = ReadType::long_read;
+
+				//Some clean up to assure in next function call the buffer starts with @ or nothing (file finished)
+
+				uint32 number_of_lines_to_skip;
+				if (readed_lines == 2)
+					number_of_lines_to_skip = 2; // means inside qual header
+				else if (readed_lines == 3)
+					number_of_lines_to_skip = 1; //means inside qual
+				else //shold not be possible
+				{
+					std::cerr << "Error: some error while reading fastq file, please contact authors\n";
+					exit(1);
+				}
+
+				CleanUpAfterLongFastqRead(number_of_lines_to_skip);
+				return true;
+
+			}
+
 		}
 		_part = part;
 		_size = line_end[k + 3];
+		read_type = ReadType::normal_read;
 	}
 	// Allocate new memory for the buffer
 
@@ -645,8 +845,9 @@ bool CFastqReaderDataSrc::Finished()
 }
 
 //----------------------------------------------------------------------------------
-uint64 CFastqReaderDataSrc::read(uchar* buff, uint64 size)
+uint64 CFastqReaderDataSrc::read(uchar* buff, uint64 size, bool& last_in_file)
 {
+	last_in_file = false;
 	if (!in_progress)
 	{
 		if (!binary_pack_queue->pop(in_data, in_data_size, file_part, compression_type))
@@ -736,7 +937,18 @@ uint64 CFastqReaderDataSrc::read(uchar* buff, uint64 size)
 						cerr << "Error: An internal error occurred. Please contact authors\n";
 					}
 					if (garbage)
-						binary_pack_queue->ignore_rest();
+					{
+						//ignore rest (garbage) data of a current file
+						FilePart tmpfilepart = file_part;
+						while (tmpfilepart != FilePart::End)
+						{
+							uchar *tmp;
+							uint64 tmpsize;
+							CompressionType tmpcomptype;
+							binary_pack_queue->pop(tmp, tmpsize, tmpfilepart, tmpcomptype);
+						}
+					}
+					last_in_file = true;
 					break;
 				}
 				else //multiple streams in one file
@@ -794,6 +1006,7 @@ uint64 CFastqReaderDataSrc::read(uchar* buff, uint64 size)
 					{
 						cerr << "Error: An internal error occurred. Please contact authors\n";
 					}
+					last_in_file = true;
 					break;
 				}
 				else
@@ -823,6 +1036,7 @@ uint64 CFastqReaderDataSrc::read(uchar* buff, uint64 size)
 				if (file_part == FilePart::End)
 				{
 					in_progress = false;
+					last_in_file = true;
 					break;
 				}
 				in_data_pos = 0;
@@ -856,6 +1070,7 @@ CWFastqReader::CWFastqReader(CKMCParams &Params, CKMCQueues &Queues, CBinaryPack
 	pmm_binary_file_reader = Queues.pmm_binary_file_reader;
 	//input_files_queue = Queues.input_files_queue;
 	binary_pack_queue = _binary_pack_queue;
+	missingEOL_at_EOF_counter = Queues.missingEOL_at_EOF_counter;
 	bam_task_manager = Queues.bam_task_manager;
 	part_size = Params.fastq_buffer_size;
 	part_queue = Queues.part_queue;
@@ -877,7 +1092,7 @@ void CWFastqReader::operator()()
 	uchar *part;
 	uint64 part_filled;
 
-	fqr = new CFastqReader(mm, pmm_fastq, file_type, kmer_len, binary_pack_queue, pmm_binary_file_reader, bam_task_manager, part_queue, nullptr);
+	fqr = new CFastqReader(mm, pmm_fastq, file_type, kmer_len, binary_pack_queue, pmm_binary_file_reader, bam_task_manager, part_queue, nullptr, missingEOL_at_EOF_counter);
 	fqr->SetPartSize(part_size);
 	if (file_type == bam)
 	{
@@ -886,8 +1101,9 @@ void CWFastqReader::operator()()
 	else
 	{
 		fqr->Init();
-		while (fqr->GetPartNew(part, part_filled))
-			part_queue->push(part, part_filled);
+		ReadType read_type;
+		while (fqr->GetPartNew(part, part_filled, read_type))
+			part_queue->push(part, part_filled, read_type);
 	}
 	delete fqr;
 	part_queue->mark_completed();
@@ -912,6 +1128,8 @@ CWStatsFastqReader::CWStatsFastqReader(CKMCParams &Params, CKMCQueues &Queues, C
 	file_type = Params.file_type;
 	kmer_len = Params.p_k;
 
+	missingEOL_at_EOF_counter = Queues.missingEOL_at_EOF_counter;
+
 	fqr = nullptr;
 }
 
@@ -926,7 +1144,7 @@ void CWStatsFastqReader::operator()()
 	uchar *part;
 	uint64 part_filled;
 
-	fqr = new CFastqReader(mm, pmm_fastq, file_type, kmer_len, binary_pack_queue, pmm_binary_file_reader, bam_task_manager, nullptr, stats_part_queue);
+	fqr = new CFastqReader(mm, pmm_fastq, file_type, kmer_len, binary_pack_queue, pmm_binary_file_reader, bam_task_manager, nullptr, stats_part_queue, missingEOL_at_EOF_counter);
 	fqr->SetPartSize(part_size);
 	if (file_type == bam)
 	{
@@ -936,9 +1154,10 @@ void CWStatsFastqReader::operator()()
 	{
 		fqr->Init();
 		bool finished = false;
-		while (fqr->GetPartNew(part, part_filled) && !finished)
+		ReadType read_type;
+		while (fqr->GetPartNew(part, part_filled, read_type) && !finished)
 		{
-			if (!stats_part_queue->push(part, part_filled))
+			if (!stats_part_queue->push(part, part_filled, read_type))
 			{
 				finished = true;
 				pmm_fastq->free(part);

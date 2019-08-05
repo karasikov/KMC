@@ -4,8 +4,8 @@
   
   Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
   
-  Version: 3.1.0
-  Date   : 2018-05-10
+  Version: 3.1.1
+  Date   : 2019-05-19
 */
 
 #ifndef _SPLITTER_H
@@ -44,6 +44,8 @@ class CSplitter {
 	input_type file_type;
 	bool both_strands;
 
+	uint32_t curr_read_len = 0;
+
 	uint32 kmer_len;
 	//uint32 prefix_len;
 	uint32 signature_len;
@@ -52,7 +54,7 @@ class CSplitter {
 
 	CSignatureMapper* s_mapper;
 
-	bool GetSeq(char *seq, uint32 &seq_size);
+	bool GetSeq(char *seq, uint32 &seq_size, ReadType read_type);
 
 public:
 	static uint32 MAX_LINE_SIZE;
@@ -60,9 +62,9 @@ public:
 	
 	CSplitter(CKMCParams &Params, CKMCQueues &Queues); 
 	void InitBins(CKMCParams &Params, CKMCQueues &Queues);	
-	void CalcStats(uchar* _part, uint64 _part_size, uint32* _stats);
-	bool ProcessReads(uchar *_part, uint64 _part_size);
-	template<typename COUNTER_TYPE> bool ProcessReadsSmallK(uchar *_part, uint64 _part_size, CSmallKBuf<COUNTER_TYPE>& small_k_buf);	
+	void CalcStats(uchar* _part, uint64 _part_size, ReadType read_type, uint32* _stats);
+	bool ProcessReads(uchar *_part, uint64 _part_size, ReadType read_type);
+	template<typename COUNTER_TYPE> bool ProcessReadsSmallK(uchar *_part, uint64 _part_size, ReadType read_type, CSmallKBuf<COUNTER_TYPE>& small_k_buf);
 	void Complete();
 	inline void GetTotal(uint64 &_n_reads);
 	inline uint64 GetTotalKmers();

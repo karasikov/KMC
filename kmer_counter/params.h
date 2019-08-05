@@ -4,8 +4,8 @@
   
   Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
   
-  Version: 3.1.0
-  Date   : 2018-05-10
+  Version: 3.1.1
+  Date   : 2019-05-19
 */
 
 #ifndef _PARAMS_H
@@ -18,7 +18,6 @@
 #include <string>
 
 typedef enum {fasta, fastq, multiline_fasta, bam} input_type;
-
 
 using namespace std;
 
@@ -184,6 +183,7 @@ struct CKMCQueues
 	CKmerQueue *kq;
 	CMemoryPool *pmm_bins, *pmm_reads, *pmm_radix_buf, *pmm_stats, *pmm_binary_file_reader;
 	CMemoryPoolWithBamSupport *pmm_fastq;
+	CMissingEOL_at_EOF_counter* missingEOL_at_EOF_counter{};
 	CMemoryBins *memory_bins;
 	CMemoryPool* pmm_small_k_buf, *pmm_small_k_completer;
 

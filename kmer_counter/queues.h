@@ -4,8 +4,8 @@
   
   Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
   
-  Version: 3.1.0
-  Date   : 2018-05-10
+  Version: 3.1.1
+  Date   : 2019-05-19
 */
 
 #ifndef _QUEUES_H
@@ -34,6 +34,13 @@ using std::thread;
 
 enum class FilePart { Begin, Middle, End };
 enum class CompressionType { plain, gzip, bzip2 };
+
+
+// Reader will clasify reads as normal or long. Distinction is not strict, it depends on current configuration (mem limit and no. of threads). In case of fastq reader will assure, that
+// only header and read are sent to splitter (qual and its header will be ignored) 
+enum class ReadType { normal_read, long_read, na }; //there is no strict distincion between normal and long reads, read will be clasified as long if reader is not able to determine whole fastq/fasta record (header, read, header, qual/header, read)
+
+
 class CBinaryPackQueue
 {
 	std::queue<tuple<uchar*, uint64, FilePart, CompressionType>> q;
@@ -104,6 +111,31 @@ public:
 };
 
 
+class CMissingEOL_at_EOF_counter
+{
+	uint32 n_missing;
+	std::mutex mtx;
+public:
+	CMissingEOL_at_EOF_counter()
+	{
+		Reset();
+	}
+	void Reset()
+	{
+		n_missing = 0;
+	}
+	void RegisterMissingEOL()
+	{
+		std::lock_guard<std::mutex> lck(mtx);
+		++n_missing;
+	}
+	uint32 Get()
+	{
+		return n_missing;
+	}
+	
+};
+
 //************************************************************************************************************
 class CInputFilesQueue {
 	typedef string elem_t;
@@ -156,7 +188,7 @@ public:
 
 //************************************************************************************************************
 class CPartQueue {
-	typedef pair<uchar *, uint64> elem_t;
+	typedef tuple<uchar *, uint64, ReadType> elem_t;
 	typedef queue<elem_t, list<elem_t>> queue_t;
 
 	queue_t q;
@@ -178,34 +210,36 @@ public:
 		lock_guard<mutex> lck(mtx);
 		return q.empty();
 	}
+
 	bool completed() {
 		lock_guard<mutex> lck(mtx);
 		return q.empty() && !n_readers;
 	}
+
 	void mark_completed() {
 		lock_guard<mutex> lck(mtx);
 		n_readers--;
 		if(!n_readers)
 			cv_queue_empty.notify_all();
 	}
-	void push(uchar *part, uint64 size) {
+
+	void push(uchar *part, uint64 size, ReadType read_type) {
 		unique_lock<mutex> lck(mtx);
 		
 		bool was_empty = q.empty();
-		q.push(make_pair(part, size));
+		q.push(make_tuple(part, size, read_type));
 
 		if(was_empty)
 			cv_queue_empty.notify_all();
 	}
-	bool pop(uchar *&part, uint64 &size) {
+
+	bool pop(uchar *&part, uint64 &size, ReadType& read_type) {
 		unique_lock<mutex> lck(mtx);
 		cv_queue_empty.wait(lck, [this]{return !this->q.empty() || !this->n_readers;}); 
 
 		if(q.empty())
 			return false;
-
-		part = q.front().first;
-		size = q.front().second;
+		std::tie(part, size, read_type) = q.front();
 		q.pop();
 
 		return true;
@@ -215,7 +249,7 @@ public:
 //************************************************************************************************************
 class CStatsPartQueue
 {
-	typedef pair<uchar *, uint64> elem_t;
+	typedef tuple<uchar *, uint64, ReadType> elem_t;
 	typedef queue<elem_t, list<elem_t>> queue_t;
 
 	queue_t q;
@@ -246,14 +280,14 @@ public:
 		return q.empty() && !n_readers;
 	}
 
-	bool push(uchar *part, uint64 size) {
+	bool push(uchar *part, uint64 size, ReadType read_type) {
 		unique_lock<mutex> lck(mtx);
 
 		if (bytes_to_read <= 0)
 			return false;
 
 		bool was_empty = q.empty();
-		q.push(make_pair(part, size));
+		q.push(make_tuple(part, size, read_type));
 		bytes_to_read -= size;
 		if (was_empty)
 			cv_queue_empty.notify_one();
@@ -261,15 +295,14 @@ public:
 		return true;
 	}
 
-	bool pop(uchar *&part, uint64 &size) {
+	bool pop(uchar *&part, uint64 &size, ReadType& read_type) {
 		unique_lock<mutex> lck(mtx);
 		cv_queue_empty.wait(lck, [this]{return !this->q.empty() || !this->n_readers; });
 
 		if (q.empty())
 			return false;
 
-		part = q.front().first;
-		size = q.front().second;
+		std::tie(part, size, read_type) = q.front();
 		q.pop();
 
 		return true;

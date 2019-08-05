@@ -4,8 +4,8 @@ The homepage of the KMC project is http://sun.aei.polsl.pl/kmc
 
 Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
 
-Version: 3.1.0
-Date   : 2018-05-10
+Version: 3.1.1
+Date   : 2019-05-19
 */
 
 #ifndef _BINARY_READER_H
@@ -308,8 +308,8 @@ public:
 			FILE* f = nullptr;
 			OpenFile(file_name, f, mode);
 			files.push_back(make_tuple(f, q, mode));
-			pmm_binary_file_reader->reserve(part);			
-			uint64 readed = fread(part, 1, part_size, f);		
+			pmm_binary_file_reader->reserve(part);
+			uint64 readed = fread(part, 1, part_size, f);
 			notify_readed(readed);
 			if (!q->push(part, readed, FilePart::Begin, mode))
 			{

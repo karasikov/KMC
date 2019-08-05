@@ -4,12 +4,13 @@ The homepage of the KMC project is http://sun.aei.polsl.pl/kmc
 
 Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
 
-Version: 3.1.0
-Date   : 2018-05-10
+Version: 3.1.1
+Date   : 2019-05-19
 */
 
 #include "stdafx.h"
 #include "splitter.h"
+
 
 //************************************************************************************************************
 // CSplitter class - splits kmers into bins according to their signatures
@@ -67,7 +68,7 @@ void CSplitter::InitBins(CKMCParams &Params, CKMCQueues &Queues)
 
 //----------------------------------------------------------------------------------
 // Return a single record from FASTA/FASTQ data
-bool CSplitter::GetSeq(char *seq, uint32 &seq_size)
+bool CSplitter::GetSeq(char *seq, uint32 &seq_size, ReadType read_type)
 {
 	uchar c = 0;
 	uint32 pos = 0;
@@ -77,37 +78,72 @@ bool CSplitter::GetSeq(char *seq, uint32 &seq_size)
 		// Title
 		if (part_pos >= part_size)
 			return false;
-		c = part[part_pos++];
-		if (c != '>')
-			return false;
-		for (; part_pos < part_size;)
+		if (curr_read_len == 0)
 		{
 			c = part[part_pos++];
-			if (c < 32)					// newliners
-				break;
-		}
-		if (part_pos >= part_size)
-			return false;
+			if (c != '>')
+				return false;
+			++n_reads;
 
-		c = part[part_pos++];
-		if (c >= 32 || c == part[part_pos - 2]) //read may be empty
-			part_pos--;
-		else if (part_pos >= part_size)
-			return false;
+			for (; part_pos < part_size;)
+			{
+				c = part[part_pos++];
+				if (c < 32)					// newliners
+					break;
+			}
+			if (part_pos >= part_size)
+				return false;
 
-		// Sequence
-		for (; part_pos < part_size;)
-		{
 			c = part[part_pos++];
-			if (c < 32)					// newliners
-				break;
-			seq[pos++] = codes[c];
+			if (c >= 32 || c == part[part_pos - 2]) //read may be empty
+				part_pos--;
+			else if (part_pos >= part_size)
+				return false;
+
+			// Sequence
+			for (; part_pos < part_size && pos < mem_part_pmm_reads;)
+			{
+				c = part[part_pos++];
+				if (c < 32)					// newliners
+					break;
+				seq[pos++] = codes[c];
+			}
+
+			if (part_pos >= part_size)
+				return true;
+
+			seq_size = pos;
+			curr_read_len = pos;
+
+			if (pos >= mem_part_pmm_reads) // read is too long to fit into out buff, it will be splitted into multiple buffers
+			{
+				part_pos -= kmer_len - 1;
+				return true;
+			}
 		}
-		seq_size = pos;
+		else // we are inside read
+		{
+			// Sequence
+			for (; part_pos < part_size && pos < mem_part_pmm_reads;)
+			{
+				c = part[part_pos++];
+				if (c < 32)					// newliners
+					break;
+				seq[pos++] = codes[c];
+			}
 
-		if (part_pos >= part_size)
-			return true;
+			if (part_pos >= part_size)
+				return true;
 
+			seq_size = pos;
+			curr_read_len += pos - kmer_len + 1;
+
+			if (pos >= mem_part_pmm_reads) // read is too long to fit into out buff, it will be splitted into multiple buffers
+			{
+				part_pos -= kmer_len - 1;
+				return true;
+			}
+		}
 		if (part[part_pos++] >= 32)
 			part_pos--;
 		else if (part_pos >= part_size)
@@ -115,79 +151,140 @@ bool CSplitter::GetSeq(char *seq, uint32 &seq_size)
 	}
 	else if (file_type == fastq)
 	{
-		// Title
-		if (part_pos >= part_size)
-			return false;
-		c = part[part_pos++];
-		if (c != '@')
-			return false;
-		for (; part_pos < part_size;)
+		if (read_type == ReadType::long_read)
 		{
-			c = part[part_pos++];
-			if (c < 32)					// newliners
-				break;
-		}
-		if (part_pos >= part_size)
-			return false;
+			//long read may or may not contain header
+			if (part_pos >= part_size)
+				return false;
 
-		c = part[part_pos++];
-		if (c >= 32 || c == part[part_pos - 2]) //read may be empty
-			part_pos--;
-		else if (part_pos >= part_size)
-			return false;
-
-		// Sequence
-		for (; part_pos < part_size;)
-		{
-			c = part[part_pos++];
-			if (c < 32)					// newliners
-				break;
-			seq[pos++] = codes[c];
-		}
-		if (part_pos >= part_size)
-			return false;
-
-		c = part[part_pos++];
-		if (c >= 32)
-			part_pos--;
-		else if (part_pos >= part_size)
-			return false;
-
-		// Plus
-		c = part[part_pos++];
-		if (part_pos >= part_size)
-			return false;
-		if (c != '+')
-			return false;
-		for (; part_pos < part_size;)
-		{
-			c = part[part_pos++];
-			if (c < 32)					// newliners
-				break;
-		}
-		if (part_pos >= part_size)
-			return false;
-
-		c = part[part_pos++];
-		if (c >= 32 || c == part[part_pos - 2]) //qual may be empty
-			part_pos--;
-		else if (part_pos >= part_size)
-			return false;
-
-		// Quality
-		part_pos += pos;
-		if (part_pos >= part_size)
-			return false;
-		c = part[part_pos++];
-		seq_size = pos;
-
-		if (part_pos >= part_size)
+			if (part_pos == 0 && part[0] == '@')
+			{
+				++n_reads;
+				for (; part[part_pos] != '\n' && part[part_pos] != '\r'; ++part_pos)
+					;
+			}
+			while(pos < mem_part_pmm_reads && part_pos < part_size)
+				seq[pos++] = codes[part[part_pos++]];
+			seq_size = pos;
+			if(part_pos < part_size)
+				part_pos -= kmer_len - 1;
 			return true;
+		}
+		else
+		{
 
-		if (part[part_pos++] >= 32)
-			part_pos--;
-		else if (part_pos >= part_size)
-			return true;
+			// Title
+			if (part_pos >= part_size)
+				return false;
+
+			if (curr_read_len == 0)
+			{
+				c = part[part_pos++];
+				if (c != '@')
+					return false;
+				++n_reads;
+
+				for (; part_pos < part_size;)
+				{
+					c = part[part_pos++];
+					if (c < 32)					// newliners
+						break;
+				}
+				if (part_pos >= part_size)
+					return false;
+
+				c = part[part_pos++];
+				if (c >= 32 || c == part[part_pos - 2]) //read may be empty
+					part_pos--;
+				else if (part_pos >= part_size)
+					return false;
+
+				// Sequence
+				for (; part_pos < part_size && pos < mem_part_pmm_reads;)
+				{
+					c = part[part_pos++];
+					if (c < 32)					// newliners
+						break;
+					seq[pos++] = codes[c];
+				}
+				if (part_pos >= part_size)
+					return false;
+
+				seq_size = pos;
+				curr_read_len = pos;
+
+				if (pos >= mem_part_pmm_reads) // read is too long to fit into out buff, it will be splitted into multiple buffers
+				{
+					part_pos -= kmer_len - 1;
+					return true;
+				}
+			}
+			else // we are inside read
+			{
+				// Sequence
+				for (; part_pos < part_size && pos < mem_part_pmm_reads;)
+				{
+					c = part[part_pos++];
+					if (c < 32)					// newliners
+						break;
+					seq[pos++] = codes[c];
+				}
+				if (part_pos >= part_size)
+					return false;
+
+				seq_size = pos;
+				curr_read_len += pos - kmer_len + 1;
+				if (pos >= mem_part_pmm_reads) // read is too long to fit into out buff, it will be splitted into multiple buffers
+				{
+					part_pos -= kmer_len - 1;
+					return true;
+				}
+			}
+
+			c = part[part_pos++];
+			if (c >= 32)
+				part_pos--;
+			else if (part_pos >= part_size)
+				return false;
+
+			// Plus
+			c = part[part_pos++];
+			if (part_pos >= part_size)
+				return false;
+			if (c != '+')
+				return false;
+			for (; part_pos < part_size;)
+			{
+				c = part[part_pos++];
+				if (c < 32)					// newliners
+					break;
+			}
+			if (part_pos >= part_size)
+				return false;
+
+			c = part[part_pos++];
+			if (c >= 32 || c == part[part_pos - 2]) //qual may be empty
+				part_pos--;
+			else if (part_pos >= part_size)
+				return false;
+
+			part_pos += curr_read_len;
+			curr_read_len = 0;
+
+			// Quality
+
+			if (part_pos >= part_size)
+				return false;
+			c = part[part_pos++];
+
+			if (part_pos >= part_size)
+				return true;
+
+			if (part[part_pos++] >= 32)
+				part_pos--;
+			else if (part_pos >= part_size)
+				return true;
+		}
 	}
 	else if (file_type == multiline_fasta)
 	{
@@ -300,7 +397,10 @@ bool CSplitter::GetSeq(char *seq, uint32 &seq_size)
 			part_pos += remaining;
 
 			if (!exclude_read) //if readed successfuly return		
+			{
+				++n_reads;
 				return true;
+			}
 		}
 
 	}
@@ -309,7 +409,7 @@ bool CSplitter::GetSeq(char *seq, uint32 &seq_size)
 
 //----------------------------------------------------------------------------------
 // Calculate statistics of m-mers
-void CSplitter::CalcStats(uchar* _part, uint64 _part_size, uint32* _stats)
+void CSplitter::CalcStats(uchar* _part, uint64 _part_size, ReadType read_type, uint32* _stats)
 {
 	part = _part;
 	part_size = _part_size;
@@ -325,7 +425,7 @@ void CSplitter::CalcStats(uchar* _part, uint64 _part_size, uint32* _stats)
 	uint32 i;
 	uint32 len;//length of extended kmer
 
-	while (GetSeq(seq, seq_size))
+	while (GetSeq(seq, seq_size, read_type))
 	{
 		i = 0;
 		len = 0;
@@ -409,7 +509,7 @@ void CSplitter::CalcStats(uchar* _part, uint64 _part_size, uint32* _stats)
 
 //----------------------------------------------------------------------------------
 // Process the reads from the given FASTQ file part
-bool CSplitter::ProcessReads(uchar *_part, uint64 _part_size)
+bool CSplitter::ProcessReads(uchar *_part, uint64 _part_size, ReadType read_type)
 {
 	part = _part;
 	part_size = _part_size;
@@ -426,10 +526,10 @@ bool CSplitter::ProcessReads(uchar *_part, uint64 _part_size)
 	uint32 i;
 	uint32 len;//length of extended kmer
 
-	while (GetSeq(seq, seq_size))
+	while (GetSeq(seq, seq_size, read_type))
 	{
-		if (file_type != multiline_fasta)
-			n_reads++;
+		//if (file_type != multiline_fasta && file_type != fastq) //read conting moved to GetSeq
+		//	n_reads++;
 		i = 0;
 		len = 0;
 		while (i + kmer_len - 1 < seq_size)
@@ -533,7 +633,7 @@ bool CSplitter::ProcessReads(uchar *_part, uint64 _part_size)
 //----------------------------------------------------------------------------------
 // Process the reads from the given FASTQ file part in small k optimization mode
 template<typename COUNTER_TYPE>
-bool CSplitter::ProcessReadsSmallK(uchar *_part, uint64 _part_size, CSmallKBuf<COUNTER_TYPE>& small_k_buf)
+bool CSplitter::ProcessReadsSmallK(uchar *_part, uint64 _part_size, ReadType read_type, CSmallKBuf<COUNTER_TYPE>& small_k_buf)
 {
 	part = _part;
 	part_size = _part_size;
@@ -551,7 +651,7 @@ bool CSplitter::ProcessReadsSmallK(uchar *_part, uint64 _part_size, CSmallKBuf<C
 	uint32 kmer_len_shift = (kmer_len - 1) * 2;
 
 	if (both_strands)
-		while (GetSeq(seq, seq_size))
+		while (GetSeq(seq, seq_size, read_type))
 		{
 			if (file_type != multiline_fasta)
 				n_reads++;
@@ -604,7 +704,7 @@ bool CSplitter::ProcessReadsSmallK(uchar *_part, uint64 _part_size, CSmallKBuf<C
 			}
 		}
 	else
-		while (GetSeq(seq, seq_size))
+		while (GetSeq(seq, seq_size, read_type))
 		{
 			if (file_type != multiline_fasta)
 				n_reads++;
@@ -703,9 +803,10 @@ void CWSplitter::operator()()
 	{
 		uchar *part;
 		uint64 size;
-		if (pq->pop(part, size))
+		ReadType read_type;
+		if (pq->pop(part, size, read_type))
 		{
-			spl->ProcessReads(part, size);
+			spl->ProcessReads(part, size, read_type);
 			pmm_fastq->free(part);
 		}
 	}
@@ -770,9 +871,10 @@ void CWStatsSplitter::operator()()
 	{
 		uchar *part;
 		uint64 size;
-		if (spq->pop(part, size))
+		ReadType read_type;
+		if (spq->pop(part, size, read_type))
 		{
-			spl->CalcStats(part, size, stats);
+			spl->CalcStats(part, size, read_type, stats);
 			pmm_fastq->free(part);
 		}
 	}
@@ -824,10 +926,10 @@ template <typename COUNTER_TYPE> void CWSmallKSplitter<COUNTER_TYPE>::operator()
 	{
 		uchar *part;
 		uint64 size;
-
-		if (pq->pop(part, size))
+		ReadType read_type;
+		if (pq->pop(part, size, read_type))
 		{
-			spl->ProcessReadsSmallK(part, size, small_k_buf);
+			spl->ProcessReadsSmallK(part, size, read_type, small_k_buf);
 			pmm_fastq->free(part);
 		}
 	}
@@ -849,8 +951,8 @@ template <typename COUNTER_TYPE> void CWSmallKSplitter<COUNTER_TYPE>::GetTotal(u
 }
 
 //instantiate some templates
-template bool CSplitter::ProcessReadsSmallK(uchar *_part, uint64 _part_size, CSmallKBuf<uint32>& small_k_buf);
-template bool CSplitter::ProcessReadsSmallK(uchar *_part, uint64 _part_size, CSmallKBuf<uint64>& small_k_buf);
+template bool CSplitter::ProcessReadsSmallK(uchar *_part, uint64 _part_size, ReadType read_type, CSmallKBuf<uint32>& small_k_buf);
+template bool CSplitter::ProcessReadsSmallK(uchar *_part, uint64 _part_size, ReadType read_type, CSmallKBuf<uint64>& small_k_buf);
 template class CWSmallKSplitter<uint32>;
 template class CWSmallKSplitter<uint64>;
 
