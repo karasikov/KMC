@@ -13,17 +13,13 @@
 
 #include "libs/simde/x86/sse2.h"
 
-#ifndef WIN32
-typedef long long __int64;
-#endif
-
 // 64b copy function
 // size - in 8B words (determined during execution)
 // dest and src must be aligned to 8B
 inline void IntrCopy64fun(void *_dest, void *_src, uint32_t size)
 {
-	__int64* dest = (__int64 *)_dest;
-	__int64* src = (__int64 *)_src;
+	simde__int64* dest = (simde__int64 *)_dest;
+	simde__int64* src = (simde__int64 *)_src;
 
 	for (unsigned i = 0; i < size; ++i)
 		simde_mm_stream_si64(dest + i, src[i]);
@@ -36,8 +32,8 @@ template <unsigned SIZE> struct IntrCopy64
 {
 	static inline void Copy(void *_dest, void *_src)
 	{
-		__int64* dest = (__int64*)_dest;
-		__int64* src = (__int64*)_src;
+		simde__int64* dest = (simde__int64*)_dest;
+		simde__int64* src = (simde__int64*)_src;
 
 		for (unsigned i = 0; i < SIZE; ++i)
 			simde_mm_stream_si64(dest + i, src[i]);
