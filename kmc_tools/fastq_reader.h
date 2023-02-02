@@ -16,6 +16,7 @@
 #include "config.h"
 #include <stdio.h>
 #include <iostream>
+#include <string>
 
 #include "libs/zlib.h"
 #include "libs/bzlib.h"
@@ -29,7 +30,7 @@ class CFastqReader {
 
 	CMemoryPool *pmm_fastq;
 
-	string input_file_name;
+	std::string input_file_name;
 	CFilteringParams::file_type file_type;
 	int kmer_len;
 	t_mode mode;
@@ -61,7 +62,7 @@ public:
 
 	static uint64 OVERHEAD_SIZE;
 
-	bool SetNames(string _input_file_name);
+	bool SetNames(std::string _input_file_name);
 	bool SetPartSize(uint64 _part_size);
 	bool OpenFiles();
 	
@@ -75,7 +76,7 @@ class CWFastqReader {
 	CMemoryPool *pmm_fastq;
 
 	CFastqReader *fqr;
-	string file_name;
+	std::string file_name;
 	uint64 part_size;
 	CInputFilesQueue *input_files_queue;
 	CPartQueue *part_queue;
