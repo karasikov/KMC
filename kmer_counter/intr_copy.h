@@ -11,8 +11,7 @@
 #ifndef _INTR_COPY_H
 #define _INTR_COPY_H
 
-#include <emmintrin.h>
-#include <immintrin.h>
+#include "libs/simde/x86/sse2.h"
 
 #ifndef WIN32
 typedef long long __int64;
@@ -27,7 +26,7 @@ inline void IntrCopy64fun(void *_dest, void *_src, uint32_t size)
 	__int64* src = (__int64 *)_src;
 
 	for (unsigned i = 0; i < size; ++i)
-		_mm_stream_si64(dest + i, src[i]);
+		simde_mm_stream_si64(dest + i, src[i]);
 }
 
 
@@ -41,7 +40,7 @@ template <unsigned SIZE> struct IntrCopy64
 		__int64* src = (__int64*)_src;
 
 		for (unsigned i = 0; i < SIZE; ++i)
-			_mm_stream_si64(dest + i, src[i]);
+			simde_mm_stream_si64(dest + i, src[i]);
 	}
 };
 
@@ -62,11 +61,11 @@ template <unsigned SIZE> struct IntrCopy128<SIZE, 1>
 {
 	static inline void Copy(void *_dest, void *_src)
 	{
-		__m128i *dest = (__m128i *) _dest;
-		__m128i *src = (__m128i *) _src;
+		simde__m128i *dest = (simde__m128i *) _dest;
+		simde__m128i *src = (simde__m128i *) _src;
 
 		for (unsigned i = 0; i < SIZE; ++i)
-			_mm_stream_si128(dest + i, _mm_load_si128(src + i));
+			simde_mm_stream_si128(dest + i, simde_mm_load_si128(src + i));
 	}
 };
 
