@@ -80,7 +80,7 @@ template <unsigned SIZE> struct IntrCopy128<SIZE, 1>
 		for (unsigned i = 0; i < SIZE; ++i)
 			_mm_stream_si128(dest + i, _mm_load_si128(src + i));
 #else
-		memcpy(_dest, src, SIZE * 16);
+		memcpy(_dest, _src, SIZE * 16);
 #endif
 	}
 };
