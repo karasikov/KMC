@@ -80,14 +80,14 @@ CFastqReader::~CFastqReader()
 
 //----------------------------------------------------------------------------------
 // Set the name of the file to process
-bool CFastqReader::SetNames(string _input_file_name)
+bool CFastqReader::SetNames(std::string _input_file_name)
 {
 	input_file_name = _input_file_name;
 
 	// Set mode according to the extension of the file name
-	if(input_file_name.size() > 3 && string(input_file_name.end()-3, input_file_name.end()) == ".gz")
+	if(input_file_name.size() > 3 && std::string(input_file_name.end()-3, input_file_name.end()) == ".gz")
 		mode = m_gzip;
-	else if(input_file_name.size() > 4 && string(input_file_name.end()-4, input_file_name.end()) == ".bz2")
+	else if(input_file_name.size() > 4 && std::string(input_file_name.end()-4, input_file_name.end()) == ".bz2")
 		mode = m_bzip2;
 	else
 		mode = m_plain;
@@ -218,7 +218,7 @@ bool CFastqReader::GetPart(uchar *&_part, uint64 &_size)
 		// Looking for a FASTQ record at the end of the area
 		if (!success)
 		{
-			cerr << "Error: Wrong input file!\n";
+			std::cerr << "Error: Wrong input file!\n";
 			exit(1);
 		}
 
@@ -262,7 +262,7 @@ bool CFastqReader::GetPart(uchar *&_part, uint64 &_size)
 
 		if (!success)
 		{
-			cerr << "Error: Wrong input file!\n";
+			std::cerr << "Error: Wrong input file!\n";
 			exit(1);
 		}
 		_part = part;
@@ -271,7 +271,7 @@ bool CFastqReader::GetPart(uchar *&_part, uint64 &_size)
 	// Allocate new memory for the buffer
 
 	pmm_fastq->reserve(part);
-	copy(_part+_size, _part+total_filled, part);
+	std::copy(_part+_size, _part+total_filled, part);
 	part_filled = total_filled - _size;
 
 	return true;
@@ -364,7 +364,7 @@ void CWFastqReader::operator()()
 				part_queue->push(part, part_filled);
 		}
 		else
-			cerr << "Error: Cannot open file " << file_name << "\n";
+			std::cerr << "Error: Cannot open file " << file_name << "\n";
 		delete fqr;
 	}
 	part_queue->mark_completed();

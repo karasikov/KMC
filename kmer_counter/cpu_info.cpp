@@ -42,7 +42,11 @@ static struct CpuInfoImpl {
 		__cpuidex(result, function_id, 0);
 
 		//it seems clang defined __GNUC__ so __clang__ is checked first, althought in fact it seems __GNUC__ code seems to work also for clang
-
+#elif defined(__arm__) || defined(__aarch64__)
+        result[0] = 0;
+        result[1] = 0;
+        result[2] = 0;
+        result[3] = 0;
 #elif defined(__clang__)							//basing on https://clang.llvm.org/doxygen/cpuid_8h_source.html
 		__asm("xchgq  %%rbx,%q1\n"
 		"cpuid\n"

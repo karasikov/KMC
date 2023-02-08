@@ -11,8 +11,9 @@
 #ifndef _INTR_COPY_H
 #define _INTR_COPY_H
 
+#if __SSE2__
 #include <emmintrin.h>
-#include <immintrin.h>
+#endif
 
 #ifndef WIN32
 typedef long long __int64;
@@ -26,8 +27,13 @@ inline void IntrCopy64fun(void *_dest, void *_src, uint32_t size)
 	__int64* dest = (__int64 *)_dest;
 	__int64* src = (__int64 *)_src;
 
-	for (unsigned i = 0; i < size; ++i)
+	for (unsigned i = 0; i < size; ++i) {
+#if __SSE2__
 		_mm_stream_si64(dest + i, src[i]);
+#else
+		dest[i] = src[i];
+#endif
+	}
 }
 
 
@@ -40,8 +46,13 @@ template <unsigned SIZE> struct IntrCopy64
 		__int64* dest = (__int64*)_dest;
 		__int64* src = (__int64*)_src;
 
-		for (unsigned i = 0; i < SIZE; ++i)
+		for (unsigned i = 0; i < SIZE; ++i) {
+#if __SSE2__
 			_mm_stream_si64(dest + i, src[i]);
+#else
+			dest[i] = src[i];
+#endif
+		}
 	}
 };
 
@@ -62,11 +73,15 @@ template <unsigned SIZE> struct IntrCopy128<SIZE, 1>
 {
 	static inline void Copy(void *_dest, void *_src)
 	{
+#if __SSE2__
 		__m128i *dest = (__m128i *) _dest;
 		__m128i *src = (__m128i *) _src;
 
 		for (unsigned i = 0; i < SIZE; ++i)
 			_mm_stream_si128(dest + i, _mm_load_si128(src + i));
+#else
+		memcpy(_dest, _src, SIZE * 16);
+#endif
 	}
 };
 
