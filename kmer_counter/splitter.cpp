@@ -351,8 +351,8 @@ bool CSplitter::GetSeq(char *seq, uint32 &seq_size, ReadType read_type)
 
 				if (!both_strands && is_rev_comp) //if read is reversed and kmc was run to count all (not only canonical) kmers read must be transformed back
 				{
-					//static const char rev_maping[] = "=TGMCRSVAWYHKDBN";
-					static const char rev_maping[] = { -1, 3, 2, -1, 1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1 };// "=TGMCRSVAWYHKDBN";
+					//static const int8_t rev_maping[] = "=TGMCRSVAWYHKDBN";
+					static const int8_t rev_maping[] = { -1, 3, 2, -1, 1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1 };// "=TGMCRSVAWYHKDBN";
 					uint32 n_bytes = l_seq / 2;
 					uint64_t pos_after = pos + l_seq;
 					pos = pos_after;
@@ -371,7 +371,7 @@ bool CSplitter::GetSeq(char *seq, uint32 &seq_size, ReadType read_type)
 				}
 				else
 				{
-					static const char maping[] = { -1, 0, 1, -1, 2, -1, -1, -1, 3, -1, -1, -1, -1, -1, -1, -1 };//"=ACMGRSVTWYHKDBN";
+					static const int8_t maping[] = { -1, 0, 1, -1, 2, -1, -1, -1, 3, -1, -1, -1, -1, -1, -1, -1 };//"=ACMGRSVTWYHKDBN";
 					uint32 n_bytes = l_seq / 2;
 					for (uint32_t ii = 0; ii < n_bytes; ++ii)
 					{
