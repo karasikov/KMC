@@ -1797,7 +1797,7 @@ public:
 	void push(int32 bin_id, uchar* suff_buff, uint64 suff_buff_size, uchar* lut, uint64 lut_size, uint64 n_unique, uint64 n_cutoff_min, uint64 n_cutoff_max, uint64 n_total, bool last_in_bin)
 	{
 		unique_lock<mutex> lck(mtx);	
-		cv_push.wait(lck, [this, bin_id, lut_size]{return curr_id == bin_id || allow_next; });
+		cv_push.wait(lck, [this, bin_id]{return curr_id == bin_id || allow_next; });
 		allow_next = false;
 		if (last_in_bin)
 		{

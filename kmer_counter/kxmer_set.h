@@ -271,14 +271,14 @@ public:
 			//count exact number of k-mers in each subarray of part						
 			for (auto& elem : current)
 				elem.counters_sum = GetCumSum(elem.end) - GetCumSum(elem.start);			
-			data.push(move(current));
+			data.push(std::move(current));
 			--parts_left;
 		}
 
 		//last
 		for (auto& elem : sub_array_desc_copy)
 			elem.counters_sum = GetCumSum(elem.end) - GetCumSum(elem.start);		
-		data.push(move(sub_array_desc_copy));		
+		data.push(std::move(sub_array_desc_copy));		
 	}	
 
 
@@ -300,7 +300,7 @@ public:
 		std::lock_guard<std::mutex> lck(mtx);
 		if (data.empty())
 			return false;
-		desc = move(data.front());
+		desc = std::move(data.front());
 		data.pop();		
 		_out_start = out_start;
 		
@@ -622,7 +622,7 @@ public:
 		for (auto ptr : mergers)
 		{
 			ptr->GetStats(tmp_n_unique, tmp_n_cutoff_min, tmp_n_cutoff_max, tmp_n_total);
-			output_packs_desc.splice(output_packs_desc.end(), move(ptr->GetPacks()));
+			output_packs_desc.splice(output_packs_desc.end(), std::move(ptr->GetPacks()));
 			n_unique += tmp_n_unique;
 			n_cutoff_min += tmp_n_cutoff_min;
 			n_cutoff_max += tmp_n_cutoff_max;

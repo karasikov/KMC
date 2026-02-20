@@ -92,7 +92,6 @@ public:
 template<> class CApplication<1>
 {
 	CKMC<1> *kmc;
-	int p_k;
 	bool is_selected;
 
 public:

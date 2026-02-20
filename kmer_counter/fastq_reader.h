@@ -28,7 +28,6 @@ class CFastqReaderDataSrc
 {
 	z_stream stream;	
 	bz_stream _bz_stram;
-	uchar* in_buffer;
 	CBinaryPackQueue* binary_pack_queue;
 	CMemoryPool *pmm_binary_file_reader;
 	bool in_progress = false;
@@ -161,7 +160,6 @@ class CWFastqReader {
 	CBinaryPackQueue* binary_pack_queue;
 	CBamTaskManager* bam_task_manager = nullptr; //only for bam input
 	CPartQueue *part_queue;
-	CStatsPartQueue *stats_part_queue;
 
 	input_type file_type;	
 	int kmer_len;

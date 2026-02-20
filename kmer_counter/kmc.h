@@ -1309,8 +1309,8 @@ template <unsigned SIZE> bool CKMC<SIZE>::Process()
 	// ***** End of Stage 2 *****
 	w_completer->GetTotal(n_unique, n_cutoff_min, n_cutoff_max, n_total);
 	
-	uint64 stat_n_plus_x_recs, stat_n_recs, stat_n_recs_tmp, stat_n_plus_x_recs_tmp;
-	stat_n_plus_x_recs = stat_n_recs = stat_n_recs_tmp = stat_n_plus_x_recs_tmp = 0;
+	uint64 stat_n_recs_tmp, stat_n_plus_x_recs_tmp;
+	stat_n_recs_tmp = stat_n_plus_x_recs_tmp = 0;
 	
 	thread *release_thr_st2_2 = new thread([&]{
 		
@@ -1318,8 +1318,6 @@ template <unsigned SIZE> bool CKMC<SIZE>::Process()
 		for(int i = 0; i < Params.n_sorters; ++i)
 		{
 			w_sorters[i]->GetDebugStats(stat_n_recs_tmp, stat_n_plus_x_recs_tmp);
-			stat_n_plus_x_recs += stat_n_plus_x_recs_tmp;
-			stat_n_recs += stat_n_recs_tmp;
 			delete w_sorters[i];
 		}
 		delete w_completer;

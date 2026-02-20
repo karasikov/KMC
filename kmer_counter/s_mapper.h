@@ -91,7 +91,6 @@ public:
 				//heuristic
 				group.clear();
 				double tmp_sum = 0.0;
-				uint32 in_current = 0;
 				for (auto it = _stats.begin(); it != _stats.end();)
 				{
 					if (tmp_sum + it->second < max_bin_size)
@@ -99,7 +98,6 @@ public:
 						tmp_sum += it->second;
 						group.push_back(*it);
 						it = _stats.erase(it);
-						++in_current;
 					}
 					else
 						++it;

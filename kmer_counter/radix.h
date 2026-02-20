@@ -708,7 +708,7 @@ namespace RadixSort
 
 		for (uint32_t th_id = 0; th_id < n_threads; ++th_id)
 		{
-			threads.push_back(std::thread([th_id, kmers, tmp, n_recs, n_threads, per_thread, byte, &histos, &_raw_buffers, &threads_histos, pmm_radix_buf]
+			threads.push_back(std::thread([th_id, tmp, &histos, &_raw_buffers, &threads_histos, pmm_radix_buf]
 			{
 				ALIGN_ARRAY COUNTER_TYPE myHisto[256];
 				for (int i = 0; i < 256; ++i)
